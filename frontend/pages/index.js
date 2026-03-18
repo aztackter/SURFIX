@@ -1,86 +1,120 @@
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
-import MovieCard from '../components/MovieCard';
 
 export default function Home() {
   const [movies, setMovies] = useState([]);
-  const [trending, setTrending] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchMovies();
+    fetch('/api/movies')
+      .then(res => res.json())
+      .then(data => {
+        setMovies(data.movies || []);
+        setLoading(false);
+      });
   }, []);
 
-  const fetchMovies = async () => {
-    try {
-      const res = await fetch('/api/movies?limit=50');
-      const data = await res.json();
-      
-      // Split into sections
-      setMovies(data.movies || []);
-      setTrending(data.movies?.slice(0, 10) || []);
-      setLoading(false);
-    } catch (error) {
-      console.error('Error:', error);
-      setLoading(false);
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      color: 'white',
+      fontFamily: 'Arial'
+    }}>
       <Head>
-        <title>SURFIX - Watch Free Movies Online</title>
-        <meta name="description" content="SURFIX - Stream the latest movies and TV shows for free" />
+        <title>SURFIX - Watch Free Movies</title>
       </Head>
 
-      {/* Hero Section */}
-      <div className="relative h-[70vh] bg-cover bg-center" style={{
-        backgroundImage: 'linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.9)), url(https://image.tmdb.org/t/p/original/wwemzKWzjKYJFfCeiB57q3r4Bcm.png)'
+      {/* Header */}
+      <div style={{
+        background: 'rgba(0,0,0,0.3)',
+        padding: '20px',
+        textAlign: 'center'
       }}>
-        <div className="absolute inset-0 flex items-center justify-center text-center">
-          <div>
-            <h1 className="text-6xl font-bold mb-4 bg-gradient-to-r from-red-500 to-purple-600 text-transparent bg-clip-text">
-              SURFIX
-            </h1>
-            <p className="text-2xl text-gray-300 mb-8">Unlimited movies, TV shows, and more</p>
-            <Link href="/browse" className="bg-red-600 hover:bg-red-700 text-white text-xl px-12 py-4 rounded-lg transition">
-              Watch Now
-            </Link>
-          </div>
-        </div>
+        <h1 style={{
+          fontSize: '48px',
+          margin: '0',
+          textShadow: '2px 2px 4px rgba(0,0,0,0.3)'
+        }}>SURFIX</h1>
+        <p style={{ fontSize: '18px', opacity: '0.9' }}>
+          Watch Free Movies & TV Shows
+        </p>
       </div>
 
-      {/* Movie Sections */}
-      <div className="container mx-auto px-4 py-12">
+      {/* Movies Grid */}
+      <div style={{
+        maxWidth: '1200px',
+        margin: '0 auto',
+        padding: '20px'
+      }}>
         {loading ? (
-          <div className="flex justify-center">
-            <div className="animate-spin rounded-full h-16 w-16 border-4 border-red-500 border-t-transparent"></div>
+          <div style={{ textAlign: 'center', padding: '50px' }}>
+            <div style={{
+              border: '4px solid rgba(255,255,255,0.3)',
+              borderTop: '4px solid white',
+              borderRadius: '50%',
+              width: '40px',
+              height: '40px',
+              animation: 'spin 1s linear infinite',
+              margin: '0 auto'
+            }}></div>
           </div>
         ) : (
-          <>
-            {/* Trending Now */}
-            <section className="mb-12">
-              <h2 className="text-3xl font-bold mb-6">Trending Now</h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                {trending.map(movie => (
-                  <MovieCard key={movie._id} movie={movie} />
-                ))}
-              </div>
-            </section>
-
-            {/* Latest Movies */}
-            <section>
-              <h2 className="text-3xl font-bold mb-6">Latest Movies</h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                {movies.map(movie => (
-                  <MovieCard key={movie._id} movie={movie} />
-                ))}
-              </div>
-            </section>
-          </>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+            gap: '15px'
+          }}>
+            {movies.map(movie => (
+              <Link key={movie._id} href={`/watch/${movie._id}`}>
+                <div style={{
+                  cursor: 'pointer',
+                  transition: 'transform 0.2s',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                }}>
+                  <img 
+                    src={movie.poster || 'https://via.placeholder.com/300x450?text=No+Poster'}
+                    alt={movie.title}
+                    style={{
+                      width: '100%',
+                      height: 'auto',
+                      aspectRatio: '2/3',
+                      objectFit: 'cover'
+                    }}
+                  />
+                  <div style={{
+                    padding: '10px',
+                    background: 'rgba(0,0,0,0.7)'
+                  }}>
+                    <h3 style={{
+                      margin: '0 0 5px 0',
+                      fontSize: '14px',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }}>{movie.title}</h3>
+                    <p style={{
+                      margin: '0',
+                      fontSize: '12px',
+                      opacity: '0.7'
+                    }}>{movie.year || '2024'}</p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
         )}
       </div>
+
+      <style jsx>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }
