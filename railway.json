@@ -1,0 +1,11 @@
+{
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "cd frontend && npm install && npm run build"
+  },
+  "deploy": {
+    "startCommand": "cd frontend && npm run start",
+    "healthcheckPath": "/api/movies",
+    "restartPolicyType": "ON_FAILURE"
+  }
+}
