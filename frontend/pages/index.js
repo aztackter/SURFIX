@@ -4,9 +4,8 @@ import Link from 'next/link';
 
 export default function Home() {
   const [movies, setMovies] = useState([]);
-  const [trending, setTrending] = useState([]);
-  const [popular, setPopular] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchMovies();
@@ -14,408 +13,474 @@ export default function Home() {
 
   const fetchMovies = async () => {
     try {
+      setLoading(true);
       const res = await fetch('/api/movies');
       const data = await res.json();
       
-      // Split into sections (simulating different categories)
-      setMovies(data.movies || []);
-      setTrending(data.movies?.slice(0, 8) || []);
-      setPopular(data.movies?.slice(8, 16) || []);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setMovies(data.movies || []);
+      }
       setLoading(false);
-    } catch (error) {
-      console.error('Error:', error);
+    } catch (err) {
+      setError('Failed to load movies');
       setLoading(false);
     }
   };
 
-  // Star rating component
-  const Rating = ({ value }) => {
-    const percentage = (value / 10) * 100;
-    return (
-      <div style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        background: 'rgba(0,0,0,0.6)',
-        padding: '2px 6px',
-        borderRadius: '4px',
-        fontSize: '12px',
-        color: '#FFD700'
-      }}>
-        <span style={{ marginRight: '2px' }}>★</span>
-        {value.toFixed(1)}
-      </div>
-    );
+  // Helper function to get rating color
+  const getRatingColor = (rating) => {
+    if (rating >= 8) return '#4caf50'; // Green
+    if (rating >= 7) return '#ffc107'; // Yellow
+    if (rating >= 5) return '#ff9800'; // Orange
+    return '#f44336'; // Red
   };
-
-  // Premium badge
-  const PremiumBadge = () => (
-    <span style={{
-      background: '#E50914',
-      color: 'white',
-      fontSize: '10px',
-      padding: '2px 6px',
-      borderRadius: '4px',
-      fontWeight: 'bold',
-      textTransform: 'uppercase'
-    }}>
-      Premium
-    </span>
-  );
-
-  // Movie Card Component (mappl.tv style)
-  const MovieCard = ({ movie, index }) => {
-    const posterUrl = movie.posterPath 
-      ? `https://image.tmdb.org/t/p/w300${movie.posterPath}`
-      : `https://via.placeholder.com/300x450/1A1E24/FFFFFF?text=${movie.title.charAt(0)}`;
-
-    return (
-      <Link href={`/watch/${movie._id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-        <div style={{
-          position: 'relative',
-          borderRadius: '8px',
-          overflow: 'hidden',
-          background: '#1A1E24',
-          transition: 'transform 0.2s',
-          cursor: 'pointer',
-          height: '100%'
-        }}>
-          {/* Poster Image */}
-          <img 
-            src={posterUrl}
-            alt={movie.title}
-            style={{
-              width: '100%',
-              aspectRatio: '2/3',
-              objectFit: 'cover',
-              display: 'block'
-            }}
-          />
-
-          {/* Rating Badge (top left like mappl.tv) */}
-          {movie.voteAverage && (
-            <div style={{
-              position: 'absolute',
-              top: '8px',
-              left: '8px',
-              zIndex: 2
-            }}>
-              <Rating value={movie.voteAverage} />
-            </div>
-          )}
-
-          {/* Premium Badge (top right like mappl.tv) */}
-          {index % 3 === 0 && (
-            <div style={{
-              position: 'absolute',
-              top: '8px',
-              right: '8px',
-              zIndex: 2
-            }}>
-              <PremiumBadge />
-            </div>
-          )}
-
-          {/* Title Overlay (bottom like mappl.tv) */}
-          <div style={{
-            position: 'absolute',
-            bottom: '0',
-            left: '0',
-            right: '0',
-            background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)',
-            padding: '20px 10px 10px 10px',
-            color: 'white'
-          }}>
-            <h3 style={{
-              margin: '0',
-              fontSize: '14px',
-              fontWeight: '600',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }}>
-              {movie.title}
-            </h3>
-            <p style={{
-              margin: '4px 0 0 0',
-              fontSize: '12px',
-              color: '#999'
-            }}>
-              {movie.releaseDate?.split('-')[0] || '2024'}
-            </p>
-          </div>
-        </div>
-      </Link>
-    );
-  };
-
-  // Section Header (like mappl.tv)
-  const SectionHeader = ({ title, seeAll = true }) => (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: '16px'
-    }}>
-      <h2 style={{
-        fontSize: '20px',
-        fontWeight: '600',
-        color: 'white',
-        margin: 0
-      }}>{title}</h2>
-      {seeAll && (
-        <span style={{
-          color: '#E50914',
-          fontSize: '14px',
-          cursor: 'pointer'
-        }}>See All →</span>
-      )}
-    </div>
-  );
 
   if (loading) {
     return (
-      <div style={{
-        minHeight: '100vh',
-        background: '#0A0C0F',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center'
-      }}>
-        <div style={{
-          border: '3px solid #1A1E24',
-          borderTop: '3px solid #E50914',
-          borderRadius: '50%',
-          width: '40px',
-          height: '40px',
-          animation: 'spin 1s linear infinite'
-        }}></div>
-        <style jsx>{`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}</style>
+      <div style={styles.loadingContainer}>
+        <div style={styles.loader}></div>
+        <p style={styles.loadingText}>Loading SURFIX...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={styles.errorContainer}>
+        <h2>Error Loading Movies</h2>
+        <p>{error}</p>
+        <button onClick={fetchMovies} style={styles.retryButton}>
+          Try Again
+        </button>
       </div>
     );
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#0A0C0F',
-      color: 'white',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
-    }}>
+    <div style={styles.container}>
       <Head>
         <title>SURFIX - Watch Free Movies Online</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
       </Head>
 
-      {/* Header/Navbar (like mappl.tv) */}
-      <header style={{
-        background: '#0F1217',
-        padding: '12px 16px',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-        borderBottom: '1px solid #1A1E24'
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          maxWidth: '1200px',
-          margin: '0 auto'
-        }}>
-          <h1 style={{
-            margin: 0,
-            fontSize: '24px',
-            fontWeight: 'bold',
-            background: 'linear-gradient(135deg, #fff 0%, #E50914 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent'
-          }}>SURFIX</h1>
-          
-          <div style={{ display: 'flex', gap: '20px' }}>
-            <span style={{ color: '#E50914', fontWeight: '500' }}>Movies</span>
-            <span style={{ color: '#999' }}>TV Shows</span>
-            <span style={{ color: '#999' }}>My List</span>
-          </div>
+      {/* Header */}
+      <header style={styles.header}>
+        <div style={styles.headerContent}>
+          <h1 style={styles.logo}>SURFIX</h1>
+          <nav style={styles.nav}>
+            <a href="#" style={styles.navLink}>Movies</a>
+            <a href="#" style={styles.navLink}>TV Shows</a>
+            <a href="#" style={styles.navLink}>Live TV</a>
+          </nav>
+          <button style={styles.searchButton}>
+            🔍
+          </button>
         </div>
       </header>
 
-      {/* Hero Section (featured content) */}
-      {movies.length > 0 && (
-        <div style={{
-          background: `linear-gradient(to bottom, rgba(10,12,15,0.8), rgba(10,12,15,1)), url(https://image.tmdb.org/t/p/original${movies[0]?.backdropPath || ''})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          padding: '60px 16px 40px 16px',
-          marginBottom: '30px'
-        }}>
-          <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-            <h2 style={{ fontSize: '32px', margin: '0 0 8px 0' }}>{movies[0]?.title}</h2>
-            <p style={{ color: '#999', margin: '0 0 16px 0', maxWidth: '600px' }}>
-              {movies[0]?.overview?.substring(0, 120)}...
-            </p>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button style={{
-                background: '#E50914',
-                color: 'white',
-                border: 'none',
-                padding: '10px 24px',
-                borderRadius: '4px',
-                fontWeight: 'bold',
-                fontSize: '16px'
-              }}>▶ Watch Now</button>
-              <button style={{
-                background: 'rgba(255,255,255,0.1)',
-                color: 'white',
-                border: 'none',
-                padding: '10px 24px',
-                borderRadius: '4px',
-                fontSize: '16px'
-              }}>+ Add to List</button>
-            </div>
-          </div>
+      {/* Hero Section */}
+      <section style={styles.hero}>
+        <div style={styles.heroContent}>
+          <h2 style={styles.heroTitle}>Unlimited Movies & TV Shows</h2>
+          <p style={styles.heroSubtitle}>Watch anywhere. Cancel anytime.</p>
+          <button style={styles.heroButton}>Start Watching</button>
         </div>
-      )}
+      </section>
 
       {/* Main Content */}
-      <main style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 16px 40px 16px' }}>
+      <main style={styles.main}>
+        {/* Premium Movies Section */}
+        <section style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <h3 style={styles.sectionTitle}>
+              Premium Movies <span style={styles.premiumBadge}>PREMIUM</span>
+            </h3>
+            <a href="#" style={styles.viewAll}>View All →</a>
+          </div>
+          
+          <div style={styles.movieGrid}>
+            {movies.slice(0, 10).map((movie, index) => (
+              <Link key={index} href={`/watch/${movie._id}`} style={{ textDecoration: 'none' }}>
+                <div style={styles.movieCard}>
+                  <div style={styles.posterContainer}>
+                    <img 
+                      src={movie.poster || 'https://via.placeholder.com/300x450'}
+                      alt={movie.title}
+                      style={styles.poster}
+                      loading="lazy"
+                    />
+                    <div style={styles.ratingBadge} style={{
+                      ...styles.ratingBadge,
+                      backgroundColor: getRatingColor(movie.rating)
+                    }}>
+                      {movie.rating}
+                    </div>
+                    {index < 3 && (
+                      <div style={styles.premiumTag}>PREMIUM</div>
+                    )}
+                  </div>
+                  <div style={styles.movieInfo}>
+                    <h4 style={styles.movieTitle}>{movie.title}</h4>
+                    <p style={styles.movieYear}>{movie.year}</p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
 
-        {/* Trending Now Section */}
-        <section style={{ marginBottom: '40px' }}>
-          <SectionHeader title="Trending Now" />
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-            gap: '12px'
-          }}>
-            {trending.map((movie, index) => (
-              <MovieCard key={movie._id} movie={movie} index={index} />
+        {/* Trending Movies Section */}
+        <section style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <h3 style={styles.sectionTitle}>🔥 Trending</h3>
+            <a href="#" style={styles.viewAll}>View All →</a>
+          </div>
+          
+          <div style={styles.movieGrid}>
+            {movies.slice(5, 15).map((movie, index) => (
+              <Link key={index} href={`/watch/${movie._id}`} style={{ textDecoration: 'none' }}>
+                <div style={styles.movieCard}>
+                  <div style={styles.posterContainer}>
+                    <img 
+                      src={movie.poster || 'https://via.placeholder.com/300x450'}
+                      alt={movie.title}
+                      style={styles.poster}
+                      loading="lazy"
+                    />
+                    <div style={styles.ratingBadge} style={{
+                      ...styles.ratingBadge,
+                      backgroundColor: getRatingColor(movie.rating)
+                    }}>
+                      {movie.rating}
+                    </div>
+                  </div>
+                  <div style={styles.movieInfo}>
+                    <h4 style={styles.movieTitle}>{movie.title}</h4>
+                    <p style={styles.movieYear}>{movie.year}</p>
+                  </div>
+                </div>
+              </Link>
             ))}
           </div>
         </section>
 
         {/* Popular Movies Section */}
-        <section style={{ marginBottom: '40px' }}>
-          <SectionHeader title="Popular Movies" />
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-            gap: '12px'
-          }}>
-            {popular.map((movie, index) => (
-              <MovieCard key={movie._id} movie={movie} index={index + 8} />
-            ))}
+        <section style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <h3 style={styles.sectionTitle}>📈 Popular</h3>
+            <a href="#" style={styles.viewAll}>View All →</a>
           </div>
-        </section>
-
-        {/* New Releases Section */}
-        <section style={{ marginBottom: '40px' }}>
-          <SectionHeader title="New Releases" />
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-            gap: '12px'
-          }}>
-            {movies.slice(16, 24).map((movie, index) => (
-              <MovieCard key={movie._id} movie={movie} index={index + 16} />
-            ))}
-          </div>
-        </section>
-
-        {/* Recommended Section */}
-        <section style={{ marginBottom: '40px' }}>
-          <SectionHeader title="Recommended For You" />
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-            gap: '12px'
-          }}>
-            {movies.slice(24, 32).map((movie, index) => (
-              <MovieCard key={movie._id} movie={movie} index={index + 24} />
-            ))}
-          </div>
-        </section>
-
-        {/* Categories/Genres (like mappl.tv) */}
-        <section style={{ marginBottom: '40px' }}>
-          <SectionHeader title="Browse by Genre" seeAll={false} />
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '8px'
-          }}>
-            {['Action', 'Comedy', 'Drama', 'Horror', 'Romance', 'Sci-Fi', 'Thriller', 'Documentary', 'Animation'].map(genre => (
-              <div key={genre} style={{
-                background: '#1A1E24',
-                padding: '12px',
-                borderRadius: '8px',
-                textAlign: 'center',
-                fontSize: '14px',
-                color: '#fff'
-              }}>
-                {genre}
-              </div>
+          
+          <div style={styles.movieGrid}>
+            {movies.slice(10, 20).map((movie, index) => (
+              <Link key={index} href={`/watch/${movie._id}`} style={{ textDecoration: 'none' }}>
+                <div style={styles.movieCard}>
+                  <div style={styles.posterContainer}>
+                    <img 
+                      src={movie.poster || 'https://via.placeholder.com/300x450'}
+                      alt={movie.title}
+                      style={styles.poster}
+                      loading="lazy"
+                    />
+                    <div style={styles.ratingBadge} style={{
+                      ...styles.ratingBadge,
+                      backgroundColor: getRatingColor(movie.rating)
+                    }}>
+                      {movie.rating}
+                    </div>
+                  </div>
+                  <div style={styles.movieInfo}>
+                    <h4 style={styles.movieTitle}>{movie.title}</h4>
+                    <p style={styles.movieYear}>{movie.year}</p>
+                  </div>
+                </div>
+              </Link>
             ))}
           </div>
         </section>
       </main>
 
-      {/* Footer (like mappl.tv) */}
-      <footer style={{
-        background: '#0F1217',
-        borderTop: '1px solid #1A1E24',
-        padding: '30px 16px',
-        marginTop: '40px'
-      }}>
-        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, 1fr)',
-            gap: '20px',
-            marginBottom: '30px'
-          }}>
-            <div>
-              <h4 style={{ margin: '0 0 10px 0', color: '#fff' }}>SURFIX</h4>
-              <p style={{ color: '#666', fontSize: '13px', margin: '0' }}>
-                Your ultimate destination for free movies and TV shows.
-              </p>
-            </div>
-            <div>
-              <h4 style={{ margin: '0 0 10px 0', color: '#fff' }}>Quick Links</h4>
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0, color: '#666', fontSize: '13px' }}>
-                <li style={{ marginBottom: '8px' }}>About Us</li>
-                <li style={{ marginBottom: '8px' }}>Contact</li>
-                <li style={{ marginBottom: '8px' }}>Terms of Service</li>
-                <li>Privacy Policy</li>
-              </ul>
-            </div>
+      {/* Footer */}
+      <footer style={styles.footer}>
+        <div style={styles.footerContent}>
+          <div style={styles.footerLinks}>
+            <a href="#" style={styles.footerLink}>Home</a>
+            <a href="#" style={styles.footerLink}>Movies</a>
+            <a href="#" style={styles.footerLink}>TV Shows</a>
+            <a href="#" style={styles.footerLink}>Terms</a>
+            <a href="#" style={styles.footerLink}>Privacy</a>
+            <a href="#" style={styles.footerLink}>Contact</a>
           </div>
-          <div style={{
-            textAlign: 'center',
-            color: '#444',
-            fontSize: '12px',
-            borderTop: '1px solid #1A1E24',
-            paddingTop: '20px'
-          }}>
-            © 2024 SURFIX. All rights reserved.
-          </div>
+          <p style={styles.copyright}>© 2024 SURFIX. All rights reserved.</p>
         </div>
       </footer>
 
-      <style jsx global>{`
-        body {
-          margin: 0;
-          padding: 0;
-          background: #0A0C0F;
-        }
-        * {
-          box-sizing: border-box;
+      <style jsx>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
         }
       `}</style>
     </div>
   );
 }
+
+// Styles object
+const styles = {
+  container: {
+    backgroundColor: '#0f0f0f',
+    minHeight: '100vh',
+    color: '#fff',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  },
+  loadingContainer: {
+    minHeight: '100vh',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    color: 'white',
+  },
+  loader: {
+    border: '4px solid rgba(255,255,255,0.3)',
+    borderTop: '4px solid white',
+    borderRadius: '50%',
+    width: '50px',
+    height: '50px',
+    animation: 'spin 1s linear infinite',
+    marginBottom: '20px',
+  },
+  loadingText: {
+    fontSize: '18px',
+  },
+  errorContainer: {
+    minHeight: '100vh',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    background: '#0f0f0f',
+    color: 'white',
+  },
+  retryButton: {
+    background: '#6b46c1',
+    color: 'white',
+    border: 'none',
+    padding: '12px 24px',
+    borderRadius: '8px',
+    fontSize: '16px',
+    cursor: 'pointer',
+    marginTop: '20px',
+  },
+  header: {
+    background: 'linear-gradient(90deg, #1a1a1a 0%, #2d1b3a 100%)',
+    padding: '15px 20px',
+    position: 'sticky',
+    top: 0,
+    zIndex: 100,
+  },
+  headerContent: {
+    maxWidth: '1400px',
+    margin: '0 auto',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  logo: {
+    fontSize: '24px',
+    fontWeight: 'bold',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    margin: 0,
+  },
+  nav: {
+    display: 'flex',
+    gap: '30px',
+    '@media (max-width: 768px)': {
+      display: 'none',
+    },
+  },
+  navLink: {
+    color: '#fff',
+    textDecoration: 'none',
+    fontSize: '16px',
+    opacity: 0.8,
+    transition: 'opacity 0.2s',
+  },
+  searchButton: {
+    background: 'none',
+    border: 'none',
+    color: 'white',
+    fontSize: '20px',
+    cursor: 'pointer',
+  },
+  hero: {
+    background: 'linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.9)), url(https://image.tmdb.org/t/p/original/wwemzKWzjKYJFfCeiB57q3r4Bcm.png)',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    height: '400px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    textAlign: 'center',
+  },
+  heroContent: {
+    maxWidth: '600px',
+    padding: '0 20px',
+  },
+  heroTitle: {
+    fontSize: '48px',
+    marginBottom: '10px',
+    '@media (max-width: 768px)': {
+      fontSize: '32px',
+    },
+  },
+  heroSubtitle: {
+    fontSize: '20px',
+    opacity: 0.8,
+    marginBottom: '30px',
+  },
+  heroButton: {
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    color: 'white',
+    border: 'none',
+    padding: '15px 40px',
+    borderRadius: '30px',
+    fontSize: '18px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+  },
+  main: {
+    maxWidth: '1400px',
+    margin: '0 auto',
+    padding: '40px 20px',
+  },
+  section: {
+    marginBottom: '60px',
+  },
+  sectionHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '20px',
+  },
+  sectionTitle: {
+    fontSize: '24px',
+    fontWeight: 'bold',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+  },
+  premiumBadge: {
+    background: 'linear-gradient(135deg, #f5b042 0%, #f5a623 100%)',
+    color: '#000',
+    fontSize: '12px',
+    padding: '4px 8px',
+    borderRadius: '4px',
+    fontWeight: 'bold',
+  },
+  viewAll: {
+    color: '#6b46c1',
+    textDecoration: 'none',
+    fontSize: '14px',
+  },
+  movieGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+    gap: '15px',
+    '@media (min-width: 1024px)': {
+      gridTemplateColumns: 'repeat(6, 1fr)',
+    },
+  },
+  movieCard: {
+    cursor: 'pointer',
+    transition: 'transform 0.2s',
+    borderRadius: '8px',
+    overflow: 'hidden',
+    background: '#1a1a1a',
+  },
+  posterContainer: {
+    position: 'relative',
+    aspectRatio: '2/3',
+  },
+  poster: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  ratingBadge: {
+    position: 'absolute',
+    top: '10px',
+    left: '10px',
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 'bold',
+    fontSize: '14px',
+    color: 'white',
+    backgroundColor: '#4caf50',
+    border: '2px solid white',
+  },
+  premiumTag: {
+    position: 'absolute',
+    top: '10px',
+    right: '10px',
+    background: 'linear-gradient(135deg, #f5b042 0%, #f5a623 100%)',
+    color: '#000',
+    fontSize: '10px',
+    padding: '4px 6px',
+    borderRadius: '4px',
+    fontWeight: 'bold',
+  },
+  movieInfo: {
+    padding: '10px',
+  },
+  movieTitle: {
+    margin: '0 0 5px 0',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    color: '#fff',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  movieYear: {
+    margin: 0,
+    fontSize: '12px',
+    color: '#999',
+  },
+  footer: {
+    background: '#1a1a1a',
+    padding: '40px 20px 20px',
+    marginTop: '60px',
+  },
+  footerContent: {
+    maxWidth: '1400px',
+    margin: '0 auto',
+  },
+  footerLinks: {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '30px',
+    flexWrap: 'wrap',
+    marginBottom: '20px',
+  },
+  footerLink: {
+    color: '#999',
+    textDecoration: 'none',
+    fontSize: '14px',
+  },
+  copyright: {
+    textAlign: 'center',
+    color: '#666',
+    fontSize: '12px',
+    margin: 0,
+  },
+};
