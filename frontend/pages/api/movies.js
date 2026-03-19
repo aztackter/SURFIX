@@ -1,17 +1,55 @@
 import { MongoClient } from 'mongodb';
 
-// MongoDB connection URI from Railway environment variables
-const MONGODB_URI = process.env.MONGODB_URI || process.env.MONGO_URL;
+// MongoDB connection URI from environment variables
+const MONGODB_URI = process.env.MONGODB_URI;
 
-// Cache the database connection to prevent multiple connections
+// SSL/TLS options to fix handshake errors
+const MONGODB_OPTIONS = {
+  // SSL/TLS settings
+  tls: true,
+  tlsAllowInvalidCertificates: true,
+  tlsAllowInvalidHostnames: true,
+  
+  // Timeout settings
+  serverSelectionTimeoutMS: 30000,
+  connectTimeoutMS: 30000,
+  socketTimeoutMS: 45000,
+  
+  // Retry settings
+  retryWrites: true,
+  retryReads: true,
+  
+  // Connection pool settings
+  maxPoolSize: 10,
+  minPoolSize: 2,
+  maxIdleTimeMS: 30000,
+  
+  // Heartbeat settings
+  heartbeatFrequencyMS: 10000,
+  
+  // Use new URL parser
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+};
+
+// Cache the database connection
 let cachedClient = null;
 let cachedDb = null;
 
+/**
+ * Connect to MongoDB with connection pooling
+ */
 async function connectToDatabase() {
-  // If we have cached connection, use it
+  // If we have a cached connection that's alive, use it
   if (cachedClient && cachedDb) {
-    console.log('Using cached database connection');
-    return { client: cachedClient, db: cachedDb };
+    try {
+      await cachedClient.db().admin().ping();
+      return { client: cachedClient, db: cachedDb };
+    } catch (error) {
+      // Connection is dead, create new one
+      cachedClient = null;
+      cachedDb = null;
+    }
   }
 
   // Check if MongoDB URI exists
@@ -19,48 +57,41 @@ async function connectToDatabase() {
     throw new Error('MongoDB URI is not defined in environment variables');
   }
 
-  console.log('Creating new database connection...');
-  
-  // Connection options for better performance and reliability
-  const options = {
-    maxPoolSize: 10, // Maximum number of connections in the pool
-    minPoolSize: 2,  // Minimum number of connections to maintain
-    maxIdleTimeMS: 30000, // Close idle connections after 30 seconds
-    connectTimeoutMS: 10000, // Timeout after 10 seconds if can't connect
-    socketTimeoutMS: 45000, // Socket timeout after 45 seconds
-    retryWrites: true,
-    retryReads: true,
-  };
+  // Validate URI format
+  if (!MONGODB_URI.startsWith('mongodb://') && !MONGODB_URI.startsWith('mongodb+srv://')) {
+    throw new Error('Invalid MongoDB URI scheme. Must start with mongodb:// or mongodb+srv://');
+  }
+
+  // Parse database name from URI or use default
+  let dbName = 'sample_mflix';
+  try {
+    const match = MONGODB_URI.match(/\/([^/?]+)(\?|$)/);
+    if (match && match[1]) {
+      dbName = match[1];
+    }
+  } catch (error) {
+    // Use default database name
+  }
 
   // Create new connection
-  const client = new MongoClient(MONGODB_URI, options);
+  const client = new MongoClient(MONGODB_URI, MONGODB_OPTIONS);
   await client.connect();
   
-  // Extract database name from URI or use default
-  const dbName = extractDatabaseName(MONGODB_URI) || 'railway';
+  // Test the connection
+  await client.db().admin().ping();
+  
   const db = client.db(dbName);
   
   // Cache the connection
   cachedClient = client;
   cachedDb = db;
   
-  console.log(`Connected to database: ${dbName}`);
   return { client, db };
 }
 
-// Helper function to extract database name from MongoDB URI
-function extractDatabaseName(uri) {
-  try {
-    // MongoDB URIs look like: mongodb+srv://user:pass@host/dbname?options
-    const match = uri.match(/\/([^/?]+)(\?|$)/);
-    return match ? match[1] : null;
-  } catch (error) {
-    console.warn('Could not extract database name from URI');
-    return null;
-  }
-}
-
-// Helper function to get rating color class
+/**
+ * Get rating color class for UI
+ */
 function getRatingColorClass(rating) {
   if (!rating && rating !== 0) return 'default';
   if (rating >= 8) return 'excellent';
@@ -69,94 +100,185 @@ function getRatingColorClass(rating) {
   return 'poor';
 }
 
-// Helper function to format movie data consistently
-function formatMovieData(movie) {
-  // Handle both MongoDB _id and string id
-  const id = movie._id ? movie._id.toString() : movie.id || movie._id;
+/**
+ * Format votes with K/M suffix
+ */
+function formatVotes(votes) {
+  if (!votes) return '0';
   
-  // Get rating from various possible locations in document
-  let rating = 0;
-  if (movie.imdb?.rating) rating = movie.imdb.rating;
-  else if (movie.vote_average) rating = movie.vote_average;
-  else if (movie.rating) rating = movie.rating;
+  const numVotes = parseInt(votes.toString().replace(/,/g, ''));
+  if (isNaN(numVotes)) return '0';
   
-  // Get votes
-  let votes = '0';
-  if (movie.imdb?.votes) votes = movie.imdb.votes.toString();
-  else if (movie.vote_count) votes = movie.vote_count.toString();
-  else if (movie.votes) votes = movie.votes.toString();
-  
-  // Format votes with K/M suffix
-  if (parseInt(votes) > 1000000) {
-    votes = (parseInt(votes) / 1000000).toFixed(1) + 'M';
-  } else if (parseInt(votes) > 1000) {
-    votes = (parseInt(votes) / 1000).toFixed(1) + 'K';
+  if (numVotes > 1000000) {
+    return (numVotes / 1000000).toFixed(1) + 'M';
+  } else if (numVotes > 1000) {
+    return (numVotes / 1000).toFixed(1) + 'K';
   }
-  
-  // Get poster URL with fallback
-  let poster = movie.poster || null;
-  if (poster && !poster.startsWith('http')) {
-    // Handle TMDB relative paths
-    if (poster.startsWith('/')) {
-      poster = `https://image.tmdb.org/t/p/w500${poster}`;
-    } else {
-      poster = null;
-    }
-  }
-  
-  // Get backdrop URL
-  let backdrop = movie.backdrop || movie.backdrop_path || null;
-  if (backdrop && !backdrop.startsWith('http')) {
-    if (backdrop.startsWith('/')) {
-      backdrop = `https://image.tmdb.org/t/p/original${backdrop}`;
-    } else {
-      backdrop = null;
-    }
-  }
-  
-  // Get overview/plot
-  const overview = movie.fullplot || movie.plot || movie.overview || '';
-  
-  // Get year from various possible fields
-  let year = 'Unknown';
-  if (movie.year) year = movie.year.toString();
-  else if (movie.released) year = new Date(movie.released).getFullYear().toString();
-  else if (movie.release_date) year = new Date(movie.release_date).getFullYear().toString();
-  
-  return {
-    _id: id,
-    id: id, // Add id as alias for _id
-    title: movie.title || 'Untitled',
-    year: year,
-    rating: parseFloat(rating) || 0,
-    ratingColor: getRatingColorClass(parseFloat(rating) || 0),
-    votes: votes,
-    poster: poster || 'https://placehold.co/300x450/1a1a1a/666666?text=No+Poster',
-    posterFallback: 'https://placehold.co/300x450/1a1a1a/666666?text=No+Poster',
-    backdrop: backdrop,
-    overview: overview,
-    imdbId: movie.imdb?.id || movie.imdbId || '',
-    genres: movie.genres || [],
-    runtime: movie.runtime || 0,
-    released: movie.released || null,
-    directors: movie.directors || [],
-    writers: movie.writers || [],
-    cast: movie.cast || [],
-    countries: movie.countries || [],
-    languages: movie.languages || [],
-    awards: movie.awards || null,
-    type: movie.type || 'movie',
-    tomatoes: movie.tomatoes || null,
-    lastUpdated: new Date().toISOString()
-  };
+  return numVotes.toString();
 }
 
+/**
+ * Format movie data consistently
+ */
+function formatMovieData(movie) {
+  try {
+    // Handle both MongoDB _id and string id
+    const id = movie._id ? movie._id.toString() : movie.id || movie._id;
+    
+    // Get rating from various possible locations
+    let rating = 0;
+    if (movie.imdb?.rating) rating = parseFloat(movie.imdb.rating);
+    else if (movie.vote_average) rating = parseFloat(movie.vote_average);
+    else if (movie.rating) rating = parseFloat(movie.rating);
+    
+    // Get votes
+    let votes = '0';
+    if (movie.imdb?.votes) {
+      votes = movie.imdb.votes.toString();
+    } else if (movie.vote_count) {
+      votes = movie.vote_count.toString();
+    } else if (movie.votes) {
+      votes = movie.votes.toString();
+    }
+    
+    // Format poster URL
+    let poster = movie.poster || null;
+    if (poster && typeof poster === 'string') {
+      if (poster.startsWith('/')) {
+        poster = `https://image.tmdb.org/t/p/w500${poster}`;
+      } else if (!poster.startsWith('http')) {
+        poster = null;
+      }
+    }
+    
+    // Format backdrop URL
+    let backdrop = movie.backdrop || movie.backdrop_path || null;
+    if (backdrop && typeof backdrop === 'string') {
+      if (backdrop.startsWith('/')) {
+        backdrop = `https://image.tmdb.org/t/p/original${backdrop}`;
+      } else if (!backdrop.startsWith('http')) {
+        backdrop = null;
+      }
+    }
+    
+    // Get overview
+    const overview = movie.fullplot || movie.plot || movie.overview || 'No description available';
+    
+    // Get year
+    let year = 'Unknown';
+    if (movie.year) {
+      year = movie.year.toString();
+    } else if (movie.released) {
+      try {
+        year = new Date(movie.released).getFullYear().toString();
+      } catch (e) {
+        // Ignore date parsing errors
+      }
+    } else if (movie.release_date) {
+      try {
+        year = new Date(movie.release_date).getFullYear().toString();
+      } catch (e) {
+        // Ignore date parsing errors
+      }
+    }
+    
+    // Get genres (limit to first 3)
+    const genres = Array.isArray(movie.genres) ? movie.genres.slice(0, 3) : [];
+    
+    // Get directors (limit to first 3)
+    const directors = Array.isArray(movie.directors) ? movie.directors.slice(0, 3) : [];
+    
+    // Get cast (limit to first 5)
+    const cast = Array.isArray(movie.cast) ? movie.cast.slice(0, 5) : [];
+    
+    return {
+      _id: id,
+      id: id,
+      title: movie.title || 'Untitled',
+      year: year,
+      rating: rating || 0,
+      ratingColor: getRatingColorClass(rating || 0),
+      votes: formatVotes(votes),
+      poster: poster || 'https://placehold.co/300x450/1a1a1a/ffffff?text=No+Poster',
+      posterFallback: 'https://placehold.co/300x450/1a1a1a/ffffff?text=No+Poster',
+      backdrop: backdrop,
+      overview: overview,
+      imdbId: movie.imdb?.id || movie.imdbId || '',
+      genres: genres,
+      runtime: movie.runtime || 0,
+      released: movie.released || null,
+      directors: directors,
+      cast: cast,
+      type: movie.type || 'movie',
+      lastUpdated: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('Error formatting movie:', error);
+    return null;
+  }
+}
+
+/**
+ * Build MongoDB query from filters
+ */
+function buildQuery(filters) {
+  const query = {};
+  
+  // Default to movies only
+  query.type = 'movie';
+  
+  // Add genre filter
+  if (filters.genre) {
+    query.genres = { $in: [filters.genre] };
+  }
+  
+  // Add year filter
+  if (filters.year) {
+    const yearNum = parseInt(filters.year);
+    if (!isNaN(yearNum)) {
+      query.year = yearNum;
+    }
+  }
+  
+  // Add search filter
+  if (filters.search) {
+    query.$or = [
+      { title: { $regex: filters.search, $options: 'i' } },
+      { plot: { $regex: filters.search, $options: 'i' } },
+      { fullplot: { $regex: filters.search, $options: 'i' } }
+    ];
+  }
+  
+  return query;
+}
+
+/**
+ * Build sort options from sort parameter
+ */
+function buildSort(sort) {
+  switch (sort) {
+    case 'latest':
+      return { year: -1, released: -1 };
+    case 'oldest':
+      return { year: 1 };
+    case 'rating':
+      return { 'imdb.rating': -1 };
+    case 'title':
+      return { title: 1 };
+    default:
+      return { year: -1 };
+  }
+}
+
+/**
+ * Main API handler
+ */
 export default async function handler(req, res) {
-  // Set CORS headers for better compatibility
+  // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate'); // Cache for 60 seconds
+  res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate');
 
   // Handle preflight OPTIONS request
   if (req.method === 'OPTIONS') {
@@ -166,12 +288,12 @@ export default async function handler(req, res) {
   // Only allow GET requests
   if (req.method !== 'GET') {
     return res.status(405).json({ 
-      error: 'Method not allowed',
-      message: 'Only GET requests are supported'
+      success: false,
+      error: 'Method not allowed'
     });
   }
 
-  // Get query parameters for pagination and filtering
+  // Get query parameters
   const { 
     page = 1, 
     limit = 20, 
@@ -181,21 +303,26 @@ export default async function handler(req, res) {
     search 
   } = req.query;
 
-  // Validate pagination parameters
+  // Validate pagination
   const pageNum = parseInt(page);
-  const limitNum = Math.min(parseInt(limit), 50); // Max 50 per page
+  const limitNum = Math.min(parseInt(limit), 50);
   
   if (isNaN(pageNum) || pageNum < 1) {
-    return res.status(400).json({ error: 'Invalid page parameter' });
+    return res.status(400).json({ 
+      success: false,
+      error: 'Invalid page parameter' 
+    });
   }
   
   if (isNaN(limitNum) || limitNum < 1) {
-    return res.status(400).json({ error: 'Invalid limit parameter' });
+    return res.status(400).json({ 
+      success: false,
+      error: 'Invalid limit parameter' 
+    });
   }
 
   const skip = (pageNum - 1) * limitNum;
 
-  let client;
   try {
     // Connect to database
     const { db } = await connectToDatabase();
@@ -203,82 +330,48 @@ export default async function handler(req, res) {
     // Get the movies collection
     const moviesCollection = db.collection('movies');
     
-    // Build query filters
-    const query = {};
+    // Build query and sort
+    const query = buildQuery({ genre, year, search });
+    const sortOption = buildSort(sort);
     
-    // Add type filter (only movies by default)
-    query.type = 'movie';
+    // Get total count for pagination
+    const totalCount = await moviesCollection.countDocuments(query);
     
-    // Add genre filter if provided
-    if (genre) {
-      query.genres = { $in: [genre] };
+    // If no movies, return empty array
+    if (totalCount === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalCount: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPrevPage: false
+        }
+      });
     }
     
-    // Add year filter if provided
-    if (year) {
-      query.year = parseInt(year);
-    }
-    
-    // Add search filter if provided
-    if (search) {
-      query.$text = { $search: search };
-    }
-    
-    // Determine sort order
-    let sortOption = {};
-    switch (sort) {
-      case 'latest':
-        sortOption = { year: -1, released: -1 };
-        break;
-      case 'oldest':
-        sortOption = { year: 1 };
-        break;
-      case 'rating':
-        sortOption = { 'imdb.rating': -1 };
-        break;
-      case 'title':
-        sortOption = { title: 1 };
-        break;
-      default:
-        sortOption = { year: -1 };
-    }
-    
-    console.log('Executing query:', JSON.stringify({ query, sort: sortOption, skip, limit: limitNum }));
-    
-    // Execute query with pagination
-    let movies = await moviesCollection
+    // Execute query
+    const movies = await moviesCollection
       .find(query)
       .sort(sortOption)
       .skip(skip)
       .limit(limitNum)
       .toArray();
     
-    console.log(`Found ${movies.length} movies`);
+    // Format movies
+    const formattedMovies = movies
+      .map(formatMovieData)
+      .filter(movie => movie !== null);
     
-    // If no movies found with filters, try without type filter
-    if (movies.length === 0 && query.type) {
-      console.log('No movies found with type filter, trying without...');
-      delete query.type;
-      movies = await moviesCollection
-        .find(query)
-        .sort(sortOption)
-        .skip(skip)
-        .limit(limitNum)
-        .toArray();
-    }
-    
-    // Get total count for pagination
-    const totalCount = await moviesCollection.countDocuments(query);
-    
-    // Format each movie
-    const formattedMovies = movies.map(formatMovieData);
-    
-    // Calculate pagination info
+    // Calculate pagination
     const totalPages = Math.ceil(totalCount / limitNum);
     const hasNextPage = pageNum < totalPages;
     const hasPrevPage = pageNum > 1;
     
-    // Return successful response with pagination metadata
+    // Return successful response
     return res.status(200).json({
       success: true,
       data: formattedMovies,
@@ -300,11 +393,7 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('Database error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
+    console.error('Database error:', error);
     
     // Return appropriate error response
     const statusCode = error.name === 'MongoNetworkError' ? 503 : 500;
@@ -312,25 +401,7 @@ export default async function handler(req, res) {
     return res.status(statusCode).json({
       success: false,
       error: 'Failed to fetch movies',
-      message: error.message,
-      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+      message: error.message
     });
-  } finally {
-    // Don't close the connection - let the pool manage it
-    // This prevents connection churning
-    if (client && client !== cachedClient) {
-      await client.close();
-    }
-  }
-}
-
-// Optional: Add a health check endpoint
-export async function healthCheck() {
-  try {
-    const { db } = await connectToDatabase();
-    await db.command({ ping: 1 });
-    return { status: 'healthy', database: 'connected' };
-  } catch (error) {
-    return { status: 'unhealthy', error: error.message };
   }
 }
