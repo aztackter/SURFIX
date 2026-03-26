@@ -2,6 +2,8 @@ import { useRouter } from 'next/router';
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
 
+// FIX: API_URL is only used server-side via Next.js API routes now.
+// The public-facing variable is still needed to call the scraper API from the browser.
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function WatchPage() {
@@ -9,29 +11,34 @@ export default function WatchPage() {
   const { id } = router.query;
   const [movie, setMovie] = useState(null);
   const [sources, setSources] = useState([]);
-  const [selectedSource, setSelectedSource] = useState(null);
+  // FIX: Track selected source by index, not object reference.
+  // Reference equality (selectedSource === source) silently breaks if the
+  // sources array is ever regenerated (e.g. retry). An index is stable.
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (id) {
-      fetchMovie();
-    }
+    if (id) fetchMovie();
   }, [id]);
 
   const fetchMovie = async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await fetch(`/api/movies/${id}`);
       const data = await res.json();
-      
+
       if (data.error) {
         setError(data.error);
-      } else {
-        setMovie(data.data);
-        await fetchSources(data.data);
+        setLoading(false);
+        return;
       }
+
+      setMovie(data.data);
       setLoading(false);
+      await fetchSources(data.data);
     } catch (err) {
       setError('Failed to load movie');
       setLoading(false);
@@ -40,59 +47,72 @@ export default function WatchPage() {
 
   const fetchSources = async (movieData) => {
     try {
+      setSourcesLoading(true);
+
+      // FIX: TMDB lookup now goes through our server-side API route
+      // so the API key is never sent to or visible in the browser.
       let tmdbId = movieData.tmdbId;
-      
-      if (!tmdbId && movieData.imdbId) {
-        const imdbRes = await fetch(`https://api.themoviedb.org/3/find/${movieData.imdbId}?api_key=${process.env.NEXT_PUBLIC_TMDB_KEY}&external_source=imdb_id`);
-        const imdbData = await imdbRes.json();
-        if (imdbData.movie_results && imdbData.movie_results.length > 0) {
-          tmdbId = imdbData.movie_results[0].id;
-        }
-      }
-      
+
       if (!tmdbId) {
-        const searchRes = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${process.env.NEXT_PUBLIC_TMDB_KEY}&query=${encodeURIComponent(movieData.title)}&year=${movieData.year}`);
-        const searchData = await searchRes.json();
-        if (searchData.results && searchData.results.length > 0) {
-          tmdbId = searchData.results[0].id;
+        const params = new URLSearchParams();
+        if (movieData.imdbId) {
+          params.set('imdbId', movieData.imdbId);
+        } else {
+          params.set('title', movieData.title);
+          if (movieData.year) params.set('year', movieData.year);
+        }
+
+        const tmdbRes = await fetch(`/api/tmdb?${params}`);
+        const tmdbData = await tmdbRes.json();
+        if (tmdbData.success) {
+          tmdbId = tmdbData.tmdbId;
         }
       }
-      
-      if (tmdbId) {
-        const sourcesRes = await fetch(`${API_URL}/api/movie?id=${tmdbId}`);
-        const sourcesData = await sourcesRes.json();
-        
-        if (sourcesData.success && sourcesData.sources.length > 0) {
-          setSources(sourcesData.sources);
-          setSelectedSource(sourcesData.sources[0]);
-        } else {
-          setError('No video sources found for this movie');
-        }
+
+      if (!tmdbId) {
+        setError('Could not find this movie in the streaming database');
+        setSourcesLoading(false);
+        return;
+      }
+
+      const sourcesRes = await fetch(`${API_URL}/api/movie?id=${tmdbId}`);
+      const sourcesData = await sourcesRes.json();
+
+      if (sourcesData.success && sourcesData.sources.length > 0) {
+        setSources(sourcesData.sources);
+        setSelectedIndex(0);
       } else {
-        setError('Could not find TMDB ID for this movie');
+        setError('No video sources found for this movie');
       }
     } catch (err) {
       console.error('Error fetching sources:', err);
       setError('Failed to fetch video sources');
+    } finally {
+      setSourcesLoading(false);
     }
   };
+
+  const selectedSource = sources[selectedIndex] || null;
 
   if (loading) {
     return (
       <div style={styles.loadingContainer}>
-        <div style={styles.loader}></div>
-        <p>Loading movie...</p>
+        <div style={styles.spinnerWrap}>
+          <div style={styles.spinner} />
+        </div>
+        <p style={styles.loadingText}>Loading movie…</p>
+        <style>{spinKeyframe}</style>
       </div>
     );
   }
 
-  if (error || !movie) {
+  if (error && !movie) {
     return (
       <div style={styles.errorContainer}>
-        <h2>Error</h2>
-        <p>{error || 'Movie not found'}</p>
+        <h2 style={styles.errorTitle}>Something went wrong</h2>
+        <p style={styles.errorMsg}>{error}</p>
         <button onClick={() => router.back()} style={styles.backButton}>
-          Go Back
+          ← Go Back
         </button>
       </div>
     );
@@ -101,100 +121,130 @@ export default function WatchPage() {
   return (
     <div style={styles.container}>
       <Head>
-        <title>{movie.title} - SURFIX</title>
+        <title>{movie?.title ? `${movie.title} — SURFIX` : 'SURFIX'}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
-      <div style={styles.navbar}>
-        <button onClick={() => router.back()} style={styles.backBtn}>
-          ← Back
-        </button>
-        <h1 style={styles.navTitle}>{movie.title}</h1>
-      </div>
+      {/* Navbar */}
+      <nav style={styles.navbar}>
+        <button onClick={() => router.back()} style={styles.backBtn}>← Back</button>
+        <h1 style={styles.navTitle}>{movie?.title}</h1>
+      </nav>
 
+      {/* Player */}
       <div style={styles.playerContainer}>
-        {selectedSource ? (
+        {sourcesLoading ? (
+          <div style={styles.playerOverlay}>
+            <div style={styles.spinner} />
+            <p style={{ color: '#aaa', marginTop: 16 }}>Finding sources…</p>
+            <style>{spinKeyframe}</style>
+          </div>
+        ) : selectedSource ? (
           <iframe
+            key={selectedSource.url}
             src={selectedSource.url}
             style={styles.player}
             allowFullScreen
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           />
         ) : (
-          <div style={styles.noServer}>
-            <p>No video sources available</p>
+          <div style={styles.playerOverlay}>
+            <p style={{ color: '#aaa' }}>{error || 'No video sources available'}</p>
+            <button onClick={fetchMovie} style={{ ...styles.backButton, marginTop: 16 }}>
+              Retry
+            </button>
           </div>
         )}
       </div>
 
+      {/* Source selector */}
       {sources.length > 1 && (
         <div style={styles.serverBar}>
+          <span style={styles.serverLabel}>Sources:</span>
           <div style={styles.serverList}>
             {sources.map((source, index) => (
               <button
-                key={index}
-                onClick={() => setSelectedSource(source)}
+                key={source.url}
+                onClick={() => setSelectedIndex(index)}
                 style={{
                   ...styles.serverButton,
-                  ...(selectedSource === source ? styles.serverButtonActive : {})
+                  // FIX: compare by index, not object reference
+                  ...(index === selectedIndex ? styles.serverButtonActive : {})
                 }}
               >
-                {source.provider} ({source.quality})
+                {source.provider}
+                <span style={styles.qualityBadge}>{source.quality}</span>
               </button>
             ))}
           </div>
         </div>
       )}
 
-      <div style={styles.infoContainer}>
-        <div style={styles.infoContent}>
-          <img 
-            src={movie.poster}
-            alt={movie.title}
-            style={styles.infoPoster}
-            onError={(e) => {
-              e.target.src = 'https://placehold.co/200x300/1a1a1a/ffffff?text=No+Poster';
-            }}
-          />
-          
-          <div style={styles.infoDetails}>
-            <h1 style={styles.infoTitle}>{movie.title}</h1>
-            
-            <div style={styles.metaTags}>
-              <span style={styles.metaTag}>{movie.year}</span>
-              {movie.runtime > 0 && (
-                <span style={styles.metaTag}>{movie.runtime} min</span>
-              )}
-              <span style={styles.metaTag}>⭐ {movie.rating}/10</span>
-            </div>
+      {/* Movie info */}
+      {movie && (
+        <div style={styles.infoContainer}>
+          <div style={styles.infoContent}>
+            <img
+              src={movie.poster}
+              alt={movie.title}
+              style={styles.infoPoster}
+              onError={(e) => {
+                e.target.src = 'https://placehold.co/200x300/1a1a1a/ffffff?text=No+Poster';
+              }}
+            />
+            <div style={styles.infoDetails}>
+              <h1 style={styles.infoTitle}>{movie.title}</h1>
 
-            {movie.genres && movie.genres.length > 0 && (
-              <div style={styles.genreTags}>
-                {movie.genres.slice(0, 3).map((genre, i) => (
-                  <span key={i} style={styles.genreTag}>{genre}</span>
-                ))}
+              <div style={styles.metaTags}>
+                {movie.year && <span style={styles.metaTag}>{movie.year}</span>}
+                {movie.runtime > 0 && <span style={styles.metaTag}>{movie.runtime} min</span>}
+                {movie.rating > 0 && (
+                  <span style={{ ...styles.metaTag, color: '#ffd700' }}>
+                    ⭐ {Number(movie.rating).toFixed(1)}/10
+                  </span>
+                )}
               </div>
-            )}
 
-            <p style={styles.overview}>{movie.overview}</p>
+              {movie.genres?.length > 0 && (
+                <div style={styles.genreTags}>
+                  {movie.genres.slice(0, 4).map((genre, i) => (
+                    <span key={i} style={styles.genreTag}>{genre}</span>
+                  ))}
+                </div>
+              )}
 
-            {movie.directors && movie.directors.length > 0 && (
-              <p style={styles.director}>
-                <strong>Director:</strong> {movie.directors.join(', ')}
-              </p>
-            )}
+              {movie.overview && (
+                <p style={styles.overview}>{movie.overview}</p>
+              )}
 
-            {movie.cast && movie.cast.length > 0 && (
-              <p style={styles.cast}>
-                <strong>Cast:</strong> {movie.cast.slice(0, 5).join(', ')}
-                {movie.cast.length > 5 && '...'}
-              </p>
-            )}
+              {movie.directors?.length > 0 && (
+                <p style={styles.metaLine}>
+                  <strong>Director:</strong> {movie.directors.join(', ')}
+                </p>
+              )}
+
+              {movie.cast?.length > 0 && (
+                <p style={styles.metaLine}>
+                  <strong>Cast:</strong> {movie.cast.slice(0, 5).join(', ')}
+                  {movie.cast.length > 5 && ' …'}
+                </p>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      <style>{spinKeyframe}</style>
     </div>
   );
 }
+
+const spinKeyframe = `
+  @keyframes spin {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
 
 const styles = {
   container: {
@@ -211,16 +261,18 @@ const styles = {
     alignItems: 'center',
     background: '#0f0f0f',
     color: '#fff',
+    gap: 8,
   },
-  loader: {
-    border: '4px solid rgba(255,255,255,0.3)',
-    borderTop: '4px solid white',
+  spinnerWrap: { marginBottom: 8 },
+  spinner: {
+    border: '4px solid rgba(255,255,255,0.15)',
+    borderTop: '4px solid #6b46c1',
     borderRadius: '50%',
-    width: '50px',
-    height: '50px',
-    animation: 'spin 1s linear infinite',
-    marginBottom: '20px',
+    width: 48,
+    height: 48,
+    animation: 'spin 0.8s linear infinite',
   },
+  loadingText: { color: '#aaa', fontSize: 15, margin: 0 },
   errorContainer: {
     minHeight: '100vh',
     display: 'flex',
@@ -230,39 +282,43 @@ const styles = {
     background: '#0f0f0f',
     color: '#fff',
     textAlign: 'center',
-    padding: '20px',
+    padding: 20,
+    gap: 12,
   },
+  errorTitle: { margin: 0, fontSize: 22 },
+  errorMsg: { color: '#aaa', margin: 0 },
   backButton: {
     background: '#6b46c1',
     color: 'white',
     border: 'none',
-    padding: '12px 24px',
-    borderRadius: '8px',
-    fontSize: '16px',
+    padding: '10px 24px',
+    borderRadius: 8,
+    fontSize: 15,
     cursor: 'pointer',
-    marginTop: '20px',
   },
   navbar: {
     background: '#1a1a1a',
-    padding: '15px 20px',
+    padding: '14px 20px',
     display: 'flex',
     alignItems: 'center',
-    gap: '20px',
+    gap: 20,
     position: 'sticky',
     top: 0,
     zIndex: 100,
+    borderBottom: '1px solid #2a2a2a',
   },
   backBtn: {
     background: 'none',
     border: '1px solid #444',
     color: 'white',
-    padding: '8px 16px',
-    borderRadius: '6px',
+    padding: '7px 14px',
+    borderRadius: 6,
     cursor: 'pointer',
-    fontSize: '14px',
+    fontSize: 14,
+    whiteSpace: 'nowrap',
   },
   navTitle: {
-    fontSize: '18px',
+    fontSize: 17,
     margin: 0,
     whiteSpace: 'nowrap',
     overflow: 'hidden',
@@ -276,110 +332,99 @@ const styles = {
   },
   player: {
     position: 'absolute',
-    top: 0,
-    left: 0,
+    inset: 0,
     width: '100%',
     height: '100%',
     border: 'none',
   },
-  noServer: {
+  playerOverlay: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
+    inset: 0,
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    background: '#1a1a1a',
-    color: '#999',
+    background: '#111',
   },
   serverBar: {
     background: '#1a1a1a',
-    padding: '15px',
-    borderBottom: '1px solid #333',
+    padding: '12px 20px',
+    borderBottom: '1px solid #2a2a2a',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
   },
+  serverLabel: { color: '#888', fontSize: 13, whiteSpace: 'nowrap' },
   serverList: {
     display: 'flex',
-    gap: '10px',
+    gap: 8,
     overflowX: 'auto',
-    padding: '5px 0',
+    paddingBottom: 2,
   },
   serverButton: {
-    background: '#333',
-    color: 'white',
-    border: 'none',
-    padding: '10px 20px',
-    borderRadius: '6px',
+    background: '#2a2a2a',
+    color: '#ccc',
+    border: '1px solid #3a3a3a',
+    padding: '8px 16px',
+    borderRadius: 6,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
-    fontSize: '14px',
+    fontSize: 13,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
   },
   serverButtonActive: {
     background: '#6b46c1',
+    color: '#fff',
+    border: '1px solid #7c5cbf',
+  },
+  qualityBadge: {
+    background: 'rgba(255,255,255,0.15)',
+    borderRadius: 4,
+    padding: '2px 6px',
+    fontSize: 11,
   },
   infoContainer: {
-    maxWidth: '1200px',
+    maxWidth: 1200,
     margin: '0 auto',
-    padding: '30px 20px',
+    padding: '32px 20px 48px',
   },
   infoContent: {
     display: 'flex',
-    gap: '30px',
+    gap: 32,
     flexWrap: 'wrap',
   },
   infoPoster: {
-    width: '200px',
-    height: '300px',
+    width: 200,
+    height: 300,
     objectFit: 'cover',
-    borderRadius: '8px',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+    borderRadius: 10,
+    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+    flexShrink: 0,
   },
-  infoDetails: {
-    flex: 1,
-    minWidth: '300px',
-  },
-  infoTitle: {
-    fontSize: '32px',
-    margin: '0 0 15px 0',
-  },
-  metaTags: {
-    display: 'flex',
-    gap: '10px',
-    marginBottom: '15px',
-    flexWrap: 'wrap',
-  },
+  infoDetails: { flex: 1, minWidth: 280 },
+  infoTitle: { fontSize: 30, margin: '0 0 14px', lineHeight: 1.2 },
+  metaTags: { display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
   metaTag: {
-    background: '#333',
-    padding: '5px 12px',
-    borderRadius: '20px',
-    fontSize: '14px',
+    background: '#2a2a2a',
+    padding: '4px 12px',
+    borderRadius: 20,
+    fontSize: 13,
   },
-  genreTags: {
-    display: 'flex',
-    gap: '8px',
-    marginBottom: '20px',
-    flexWrap: 'wrap',
-  },
+  genreTags: { display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' },
   genreTag: {
     background: '#6b46c1',
     padding: '4px 10px',
-    borderRadius: '4px',
-    fontSize: '12px',
+    borderRadius: 4,
+    fontSize: 12,
   },
   overview: {
-    fontSize: '16px',
-    lineHeight: '1.6',
-    color: '#ccc',
-    marginBottom: '20px',
+    fontSize: 15,
+    lineHeight: 1.7,
+    color: '#bbb',
+    marginBottom: 18,
+    margin: '0 0 18px',
   },
-  director: {
-    fontSize: '15px',
-    color: '#ddd',
-    marginBottom: '10px',
-  },
-  cast: {
-    fontSize: '15px',
-    color: '#ddd',
-  },
+  metaLine: { fontSize: 14, color: '#ccc', margin: '0 0 8px' },
 };
