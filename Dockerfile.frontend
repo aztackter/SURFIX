@@ -1,13 +1,35 @@
-FROM node:18-alpine
+FROM node:18-alpine AS builder
 
 WORKDIR /app
 
 COPY frontend/package*.json ./
-RUN npm install --production
+
+# FIX: Use plain `npm install` (not --production) so Next.js devDependencies
+# are available during `npm run build`. We prune them in the runtime stage.
+RUN npm install
 
 COPY frontend/ .
 
+# Build requires NEXT_PUBLIC_API_URL to be known at compile time.
+# Pass it in via --build-arg in docker-compose or your CI pipeline.
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 RUN npm run build
+
+# ---- Runtime stage ----
+FROM node:18-alpine AS runner
+
+WORKDIR /app
+
+# Only copy what's needed to run the server
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/next.config.js ./
+
+# Install production dependencies only in the final image
+RUN npm install --production
 
 EXPOSE 3000
 
