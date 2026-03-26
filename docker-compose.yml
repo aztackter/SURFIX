@@ -16,15 +16,28 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      args:
+        # FIX: NEXT_PUBLIC_* variables are baked into the browser bundle at
+        # build time by Next.js. Passing them only as runtime `environment:`
+        # entries does nothing — they must be build args so the Dockerfile
+        # can inject them via ARG/ENV before `npm run build` runs.
+        #
+        # Set NEXT_PUBLIC_API_URL in your .env file to the public-facing URL
+        # of the API service (e.g. https://api.yourdomain.com or the Railway
+        # public URL). Do NOT use http://localhost:3001 here — the browser
+        # cannot reach a container's localhost.
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
     ports:
       - "3000:3000"
     environment:
       - PORT=3000
       - NODE_ENV=production
+      # Server-side only — never sent to the browser
       - API_URL=http://api:3001
       - MONGODB_URI=${MONGODB_URI}
-      - NEXT_PUBLIC_API_URL=http://localhost:3001
-      - NEXT_PUBLIC_TMDB_KEY=${TMDB_API_KEY}
+      # FIX: TMDB key is now server-side only (no NEXT_PUBLIC_ prefix).
+      # It is used exclusively in /pages/api/tmdb.js, never the browser.
+      - TMDB_API_KEY=${TMDB_API_KEY}
     depends_on:
       - api
     restart: unless-stopped
