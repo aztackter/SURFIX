@@ -17,7 +17,7 @@ export function sortByQuality(sources) {
     'sd': 1,
     '360p': 0
   };
-  
+
   return sources.sort((a, b) => {
     const aQuality = (a.quality || '').toLowerCase();
     const bQuality = (b.quality || '').toLowerCase();
@@ -31,9 +31,7 @@ export function deduplicateSources(sources) {
   const seen = new Map();
   return sources.filter(source => {
     const key = source.url;
-    if (seen.has(key)) {
-      return false;
-    }
+    if (seen.has(key)) return false;
     seen.set(key, true);
     return true;
   });
