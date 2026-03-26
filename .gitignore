@@ -1,0 +1,6 @@
+# FIX: Ensure real credentials are never committed
+.env
+
+node_modules/
+.next/
+*.log
