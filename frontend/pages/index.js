@@ -14,42 +14,33 @@ export default function Home() {
   const fetchMovies = async () => {
     try {
       setLoading(true);
-      console.log('Fetching movies...');
-      
       const res = await fetch('/api/movies');
       const data = await res.json();
       
-      console.log('API Response:', data);
-      
-      if (data.movies && data.movies.length > 0) {
-        setMovies(data.movies);
-        setError(null);
+      if (data.error) {
+        setError(data.error);
       } else {
-        setError('No movies found');
+        setMovies(data.data || []);
       }
-      
       setLoading(false);
     } catch (err) {
-      console.error('Fetch error:', err);
-      setError('Failed to load movies: ' + err.message);
+      setError('Failed to load movies');
       setLoading(false);
     }
   };
 
-  // Helper function to get rating color
   const getRatingColor = (rating) => {
-    if (rating >= 8) return '#4caf50'; // Green
-    if (rating >= 7) return '#ffc107'; // Yellow
-    if (rating >= 5) return '#ff9800'; // Orange
-    return '#f44336'; // Red
+    if (rating >= 8) return '#4caf50';
+    if (rating >= 7) return '#ffc107';
+    if (rating >= 5) return '#ff9800';
+    return '#f44336';
   };
 
   if (loading) {
     return (
       <div style={styles.loadingContainer}>
         <div style={styles.loader}></div>
-        <p style={styles.loadingText}>Loading SURFIX...</p>
-        <p style={styles.loadingSubtext}>Fetching movies from database...</p>
+        <p>Loading SURFIX...</p>
       </div>
     );
   }
@@ -57,22 +48,10 @@ export default function Home() {
   if (error) {
     return (
       <div style={styles.errorContainer}>
-        <h2 style={styles.errorTitle}>⚠️ Error Loading Movies</h2>
-        <p style={styles.errorMessage}>{error}</p>
+        <h2>Error Loading Movies</h2>
+        <p>{error}</p>
         <button onClick={fetchMovies} style={styles.retryButton}>
           Try Again
-        </button>
-      </div>
-    );
-  }
-
-  if (movies.length === 0) {
-    return (
-      <div style={styles.errorContainer}>
-        <h2 style={styles.errorTitle}>No Movies Found</h2>
-        <p style={styles.errorMessage}>The database is empty. Add some movies to get started.</p>
-        <button onClick={fetchMovies} style={styles.retryButton}>
-          Refresh
         </button>
       </div>
     );
@@ -85,7 +64,6 @@ export default function Home() {
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       </Head>
 
-      {/* Header */}
       <header style={styles.header}>
         <div style={styles.headerContent}>
           <h1 style={styles.logo}>SURFIX</h1>
@@ -96,12 +74,10 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Movie Count */}
       <div style={styles.movieCount}>
         Found {movies.length} movies
       </div>
 
-      {/* Movies Grid */}
       <main style={styles.main}>
         <div style={styles.movieGrid}>
           {movies.map((movie) => (
@@ -113,7 +89,7 @@ export default function Home() {
                     alt={movie.title}
                     style={styles.poster}
                     onError={(e) => {
-                      e.target.src = 'https://via.placeholder.com/300x450?text=No+Poster';
+                      e.target.src = 'https://placehold.co/300x450/1a1a1a/ffffff?text=No+Poster';
                     }}
                   />
                   <div style={{
@@ -133,7 +109,6 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Footer */}
       <footer style={styles.footer}>
         <p style={styles.copyright}>© 2024 SURFIX</p>
       </footer>
@@ -173,14 +148,6 @@ const styles = {
     animation: 'spin 1s linear infinite',
     marginBottom: '20px',
   },
-  loadingText: {
-    fontSize: '18px',
-    marginBottom: '10px',
-  },
-  loadingSubtext: {
-    fontSize: '14px',
-    opacity: 0.8,
-  },
   errorContainer: {
     minHeight: '100vh',
     display: 'flex',
@@ -191,17 +158,6 @@ const styles = {
     color: 'white',
     padding: '20px',
     textAlign: 'center',
-  },
-  errorTitle: {
-    fontSize: '24px',
-    marginBottom: '10px',
-    color: '#ff6b6b',
-  },
-  errorMessage: {
-    fontSize: '16px',
-    opacity: 0.8,
-    marginBottom: '20px',
-    maxWidth: '600px',
   },
   retryButton: {
     background: '#6b46c1',
