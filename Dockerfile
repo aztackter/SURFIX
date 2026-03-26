@@ -1,18 +1,12 @@
 FROM node:18-alpine
 
-# Install additional SSL certificates
-RUN apk add --no-cache ca-certificates
-
 WORKDIR /app
 
-COPY frontend/ .
+COPY api/package*.json ./
+RUN npm install --production
 
-# Set NODE_OPTIONS to handle SSL
-ENV NODE_OPTIONS="--use-openssl-ca"
+COPY api/ .
 
-RUN npm install
-RUN npm run build
-
-EXPOSE 3000
+EXPOSE 3001
 
 CMD ["npm", "start"]
