@@ -1,15 +1,17 @@
 import { useRouter } from 'next/router';
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export default function WatchPage() {
   const router = useRouter();
   const { id } = router.query;
   const [movie, setMovie] = useState(null);
+  const [sources, setSources] = useState([]);
+  const [selectedSource, setSelectedSource] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedServer, setSelectedServer] = useState(0);
 
   useEffect(() => {
     if (id) {
@@ -20,58 +22,59 @@ export default function WatchPage() {
   const fetchMovie = async () => {
     try {
       setLoading(true);
-      console.log('Fetching movie:', id);
-      
       const res = await fetch(`/api/movies/${id}`);
       const data = await res.json();
-      
-      console.log('Movie data:', data);
       
       if (data.error) {
         setError(data.error);
       } else {
-        setMovie(data);
+        setMovie(data.data);
+        await fetchSources(data.data);
       }
-      
       setLoading(false);
     } catch (err) {
-      console.error('Error:', err);
       setError('Failed to load movie');
       setLoading(false);
     }
   };
 
-  // Generate embed URLs from different sources
-  const getEmbedServers = (imdbId) => {
-    if (!imdbId) return [];
-    
-    return [
-      {
-        name: 'Server 1',
-        url: `https://vidsrc.cc/v2/embed/movie/${imdbId}`,
-        quality: 'HD'
-      },
-      {
-        name: 'Server 2',
-        url: `https://2embed.cc/embed/${imdbId}`,
-        quality: 'HD'
-      },
-      {
-        name: 'Server 3',
-        url: `https://vidsrc.to/embed/movie/${imdbId}`,
-        quality: '1080p'
-      },
-      {
-        name: 'Server 4',
-        url: `https://multiembed.mov/?video_id=${imdbId}`,
-        quality: 'HD'
-      },
-      {
-        name: 'Server 5',
-        url: `https://moviesapi.club/movie/${imdbId}`,
-        quality: '720p'
+  const fetchSources = async (movieData) => {
+    try {
+      let tmdbId = movieData.tmdbId;
+      
+      if (!tmdbId && movieData.imdbId) {
+        const imdbRes = await fetch(`https://api.themoviedb.org/3/find/${movieData.imdbId}?api_key=${process.env.NEXT_PUBLIC_TMDB_KEY}&external_source=imdb_id`);
+        const imdbData = await imdbRes.json();
+        if (imdbData.movie_results && imdbData.movie_results.length > 0) {
+          tmdbId = imdbData.movie_results[0].id;
+        }
       }
-    ];
+      
+      if (!tmdbId) {
+        const searchRes = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${process.env.NEXT_PUBLIC_TMDB_KEY}&query=${encodeURIComponent(movieData.title)}&year=${movieData.year}`);
+        const searchData = await searchRes.json();
+        if (searchData.results && searchData.results.length > 0) {
+          tmdbId = searchData.results[0].id;
+        }
+      }
+      
+      if (tmdbId) {
+        const sourcesRes = await fetch(`${API_URL}/api/movie?id=${tmdbId}`);
+        const sourcesData = await sourcesRes.json();
+        
+        if (sourcesData.success && sourcesData.sources.length > 0) {
+          setSources(sourcesData.sources);
+          setSelectedSource(sourcesData.sources[0]);
+        } else {
+          setError('No video sources found for this movie');
+        }
+      } else {
+        setError('Could not find TMDB ID for this movie');
+      }
+    } catch (err) {
+      console.error('Error fetching sources:', err);
+      setError('Failed to fetch video sources');
+    }
   };
 
   if (loading) {
@@ -86,7 +89,7 @@ export default function WatchPage() {
   if (error || !movie) {
     return (
       <div style={styles.errorContainer}>
-        <h2>Error Loading Movie</h2>
+        <h2>Error</h2>
         <p>{error || 'Movie not found'}</p>
         <button onClick={() => router.back()} style={styles.backButton}>
           Go Back
@@ -95,15 +98,12 @@ export default function WatchPage() {
     );
   }
 
-  const embedServers = getEmbedServers(movie.imdbId);
-
   return (
     <div style={styles.container}>
       <Head>
         <title>{movie.title} - SURFIX</title>
       </Head>
 
-      {/* Navigation */}
       <div style={styles.navbar}>
         <button onClick={() => router.back()} style={styles.backBtn}>
           ← Back
@@ -111,43 +111,40 @@ export default function WatchPage() {
         <h1 style={styles.navTitle}>{movie.title}</h1>
       </div>
 
-      {/* Video Player */}
       <div style={styles.playerContainer}>
-        {embedServers.length > 0 ? (
+        {selectedSource ? (
           <iframe
-            src={embedServers[selectedServer]?.url}
+            src={selectedSource.url}
             style={styles.player}
             allowFullScreen
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           />
         ) : (
           <div style={styles.noServer}>
-            <p>No video servers available for this movie</p>
+            <p>No video sources available</p>
           </div>
         )}
       </div>
 
-      {/* Server Selection */}
-      {embedServers.length > 1 && (
+      {sources.length > 1 && (
         <div style={styles.serverBar}>
           <div style={styles.serverList}>
-            {embedServers.map((server, index) => (
+            {sources.map((source, index) => (
               <button
                 key={index}
-                onClick={() => setSelectedServer(index)}
+                onClick={() => setSelectedSource(source)}
                 style={{
                   ...styles.serverButton,
-                  ...(selectedServer === index ? styles.serverButtonActive : {})
+                  ...(selectedSource === source ? styles.serverButtonActive : {})
                 }}
               >
-                {server.name} ({server.quality})
+                {source.provider} ({source.quality})
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Movie Info */}
       <div style={styles.infoContainer}>
         <div style={styles.infoContent}>
           <img 
@@ -155,7 +152,7 @@ export default function WatchPage() {
             alt={movie.title}
             style={styles.infoPoster}
             onError={(e) => {
-              e.target.src = 'https://via.placeholder.com/200x300?text=No+Poster';
+              e.target.src = 'https://placehold.co/200x300/1a1a1a/ffffff?text=No+Poster';
             }}
           />
           
@@ -165,9 +162,9 @@ export default function WatchPage() {
             <div style={styles.metaTags}>
               <span style={styles.metaTag}>{movie.year}</span>
               {movie.runtime > 0 && (
-                <span style={styles.metaTag}>{Math.floor(movie.runtime)} min</span>
+                <span style={styles.metaTag}>{movie.runtime} min</span>
               )}
-              <span style={styles.metaTag}>⭐ {movie.rating?.toFixed(1) || 'N/A'}/10</span>
+              <span style={styles.metaTag}>⭐ {movie.rating}/10</span>
             </div>
 
             {movie.genres && movie.genres.length > 0 && (
@@ -195,13 +192,6 @@ export default function WatchPage() {
           </div>
         </div>
       </div>
-
-      <style jsx>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 }
@@ -281,7 +271,7 @@ const styles = {
   playerContainer: {
     position: 'relative',
     width: '100%',
-    paddingTop: '56.25%', // 16:9 aspect ratio
+    paddingTop: '56.25%',
     background: '#000',
   },
   player: {
