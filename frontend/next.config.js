@@ -1,7 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // FIX: Declare allowed image domains so next/image optimization works
-  // and external poster URLs are not blocked.
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: 'm.media-amazon.com' },
@@ -11,8 +9,6 @@ const nextConfig = {
       { protocol: 'https', hostname: 'img.omdbapi.com' },
     ],
   },
-
-  // Recommended security headers
   async headers() {
     return [
       {
